@@ -57,22 +57,28 @@ sudo cp zig-out/bin/zflate /usr/local/bin/zflate
 // Zlib-format deflate/inflate
 pub fn deflate(allocator, input) Error![]u8;
 pub fn deflateWithLevel(allocator, input, level) Error![]u8;
+pub fn deflateWithOptions(allocator, input, options) Error![]u8;
 pub fn inflate(allocator, input) Error![]u8;
 
 // Raw deflate (no zlib wrapper)
 pub fn deflateRaw(allocator, input) Error![]u8;
 pub fn deflateRawWithLevel(allocator, input, level) Error![]u8;
+pub fn deflateRawWithOptions(allocator, input, options) Error![]u8;
 pub fn inflateRaw(allocator, input) Error![]u8;
 
 // Gzip format
 pub fn gzipCompress(allocator, input, filename, level) Error![]u8;
+pub fn gzipCompressWithOptions(allocator, input, filename, options) Error![]u8;
 pub fn gzipDecompress(allocator, input) Error!struct { data: []u8, filename: ?[]const u8 };
 
 // Compression levels
 pub const CompressionLevel = enum { store, fast, default, best };
 
+// Options
+pub const DeflateOptions = struct { level: CompressionLevel = .default, small: bool = false };
+
 // Streaming API
-pub const Compressor = struct { init, write, finish, deinit };
+pub const Compressor = struct { init, initWithOptions, write, finish, deinit };
 pub const Decompressor = struct { init, decompress, decompressRaw };
 ```
 
@@ -108,7 +114,7 @@ Supported flags include `-d`, `-c`, `-k`, `-f`, `-v`, `-t`, `-l`, `-n`, `-N`, `-
 3. **Huffman** — `HuffmanTable` (lookup-table decoder), `buildHuffmanLengths` (package-merge-like length-limited construction using a heap + tree depth adjustment), `computeCodes`, and comptime precomputed fixed Huffman tables/codes.
 4. **Length/Distance tables** — Standard deflate base and extra-bits tables.
 5. **Inflate** — `inflateStored`, `inflateFixed`, `inflateDynamic`, `copyFromOutput`, and the top-level `inflate` / `inflateRaw` functions.
-6. **Deflate / LZ77** — `Matcher` (hash-chain LZ77 matcher with a 32KB window, 15-bit hash, adaptive chain limits), `encodeLength`, `encodeDistance`, `deflateDynamicBlock`, `deflateFixedBlock`, `deflateStoredBlock`, `deflateBlock`, `deflateBlocks`, and top-level `deflate` / `deflateWithLevel` / `deflateRaw` / `deflateRawWithLevel`.
+6. **Deflate / LZ77** — `Matcher` (hash-chain LZ77 matcher with configurable window/hash sizes; defaults to 32KB window / 15-bit hash, small mode uses 4KB / 13-bit), `encodeLength`, `encodeDistance`, `deflateDynamicBlock`, `deflateFixedBlock`, `deflateStoredBlock`, `deflateBlock`, `deflateBlocks`, and top-level `deflate` / `deflateWithLevel` / `deflateWithOptions` / `deflateRaw` / `deflateRawWithLevel` / `deflateRawWithOptions`.
 7. **Gzip** — `gzipCompress` and `gzipDecompress` (header parsing, FEXTRA/FNAME/FCOMMENT/FHCRC skipping, little-endian CRC32+ISIZE trailer validation).
 8. **Streaming API** — `Compressor` (buffers input, updates Adler-32 incrementally, emits zlib wrapper) and `Decompressor` (thin wrapper around `inflate` / `inflateRaw`).
 9. **Tests** — 15 tests covering roundtrip, zlib cross-compatibility, raw deflate, streaming, all compression levels, multi-block large data, and gzip roundtrip.

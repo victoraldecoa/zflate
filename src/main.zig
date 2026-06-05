@@ -42,6 +42,7 @@ const CliOptions = struct {
     no_name: bool = false,
     quiet: bool = false,
     recursive: bool = false,
+    small: bool = false,
     level: zflate.CompressionLevel = .default,
     suffix: []const u8 = ".gz",
 };
@@ -72,6 +73,10 @@ fn parseArgsZ(args: []const [:0]const u8) !struct { opts: CliOptions, files: [][
             opts.no_name = true;
         } else if (std.mem.eql(u8, arg, "--quiet")) {
             opts.quiet = true;
+        } else if (std.mem.eql(u8, arg, "--name")) {
+            opts.no_name = false;
+        } else if (std.mem.eql(u8, arg, "--small")) {
+            opts.small = true;
         } else if (std.mem.eql(u8, arg, "--best")) {
             opts.level = .best;
         } else if (std.mem.eql(u8, arg, "--store")) {
@@ -108,8 +113,10 @@ fn parseArgsZ(args: []const [:0]const u8) !struct { opts: CliOptions, files: [][
                     't' => opts.test_integrity = true,
                     'l' => opts.list = true,
                     'n' => opts.no_name = true,
+                    'N' => opts.no_name = false,
                     'q' => opts.quiet = true,
                     'r' => opts.recursive = true,
+                    's' => opts.small = true,
                     'h' => {
                         std.debug.print("{s}\n", .{usage});
                         std.process.exit(0);
@@ -145,7 +152,7 @@ fn compressFile(allocator: std.mem.Allocator, io: Io, path: []const u8, opts: Cl
     defer allocator.free(data);
 
     const filename = if (opts.no_name) null else path;
-    const compressed = try zflate.gzipCompress(allocator, data, filename, opts.level);
+    const compressed = try zflate.gzipCompressWithOptions(allocator, data, filename, .{ .level = opts.level, .small = opts.small });
     defer allocator.free(compressed);
 
     if (opts.stdout) {
@@ -286,7 +293,7 @@ fn writeAllStdout(data: []const u8) !void {
 fn compressStdin(allocator: std.mem.Allocator, opts: CliOptions) !void {
     const data = try readAllStdin(allocator);
     defer allocator.free(data);
-    const compressed = try zflate.gzipCompress(allocator, data, null, opts.level);
+    const compressed = try zflate.gzipCompressWithOptions(allocator, data, null, .{ .level = opts.level, .small = opts.small });
     defer allocator.free(compressed);
     try writeAllStdout(compressed);
 }

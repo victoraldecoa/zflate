@@ -311,40 +311,28 @@ const fixed_dist_codes = blk: {
 // Length / Distance tables
 // ============================================
 const length_base = [_]u16{
-    3, 4, 5, 6, 7, 8, 9, 10,
-    11, 13, 15, 17,
-    19, 23, 27, 31,
-    35, 43, 51, 59,
-    67, 83, 99, 115,
-    131, 163, 195, 227,
-    258,
+    3,   4,   5,   6,   7,   8,  9,  10,
+    11,  13,  15,  17,  19,  23, 27, 31,
+    35,  43,  51,  59,  67,  83, 99, 115,
+    131, 163, 195, 227, 258,
 };
 const length_extra_bits = [_]u5{
     0, 0, 0, 0, 0, 0, 0, 0,
-    1, 1, 1, 1,
-    2, 2, 2, 2,
-    3, 3, 3, 3,
-    4, 4, 4, 4,
-    5, 5, 5, 5,
-    0,
+    1, 1, 1, 1, 2, 2, 2, 2,
+    3, 3, 3, 3, 4, 4, 4, 4,
+    5, 5, 5, 5, 0,
 };
 const distance_base = [_]u16{
-    1, 2, 3, 4, 5, 7, 9, 13,
-    17, 25, 33, 49,
-    65, 97, 129, 193,
-    257, 385, 513, 769,
-    1025, 1537, 2049, 3073,
-    4097, 6145, 8193, 12289,
-    16385, 24577,
+    1,    2,    3,    4,     5,     7,     9,    13,
+    17,   25,   33,   49,    65,    97,    129,  193,
+    257,  385,  513,  769,   1025,  1537,  2049, 3073,
+    4097, 6145, 8193, 12289, 16385, 24577,
 };
 const distance_extra_bits = [_]u5{
-    0, 0, 0, 0, 1, 1, 2, 2,
-    3, 3, 4, 4,
-    5, 5, 6, 6,
-    7, 7, 8, 8,
-    9, 9, 10, 10,
-    11, 11, 12, 12,
-    13, 13,
+    0,  0,  0,  0,  1,  1,  2,  2,
+    3,  3,  4,  4,  5,  5,  6,  6,
+    7,  7,  8,  8,  9,  9,  10, 10,
+    11, 11, 12, 12, 13, 13,
 };
 
 // ============================================
@@ -405,7 +393,7 @@ fn inflateDynamic(br: *BitReader, allocator: Allocator, out: *std.ArrayList(u8))
     const num_dist = try br.readBits(5) + 1;
     const num_clen = try br.readBits(4) + 4;
 
-    const clen_order = [_]u8{16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15};
+    const clen_order = [_]u8{ 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
     var clen_lengths: [19]u4 = @splat(0);
     for (0..num_clen) |i| {
         clen_lengths[clen_order[i]] = @intCast(try br.readBits(3));
@@ -486,9 +474,9 @@ pub fn inflate(allocator: Allocator, input: []const u8) Error![]u8 {
 
     if (br.buf.len < 4) return error.EndOfStream;
     const adler = (@as(u32, br.buf[br.buf.len - 4]) << 24) |
-                  (@as(u32, br.buf[br.buf.len - 3]) << 16) |
-                  (@as(u32, br.buf[br.buf.len - 2]) << 8) |
-                  (@as(u32, br.buf[br.buf.len - 1]));
+        (@as(u32, br.buf[br.buf.len - 3]) << 16) |
+        (@as(u32, br.buf[br.buf.len - 2]) << 8) |
+        (@as(u32, br.buf[br.buf.len - 1]));
 
     const computed = adler32(out.items);
     if (adler != computed) return error.AdlerMismatch;
@@ -501,26 +489,38 @@ pub fn inflate(allocator: Allocator, input: []const u8) Error![]u8 {
 // ============================================
 const WINDOW_SIZE = 32768;
 const HASH_BITS = 15;
-const HASH_SIZE = 1 << HASH_BITS;
 const MAX_MATCH = 258;
 const MIN_MATCH = 3;
 
 const Matcher = struct {
-    prev: [WINDOW_SIZE]i32,
-    head: [HASH_SIZE]i32,
+    prev: []i32,
+    head: []i32,
+    window_size: u32,
+    hash_size: u32,
 
-    fn init() Matcher {
-        var self: Matcher = undefined;
-        @memset(&self.prev, -1);
-        @memset(&self.head, -1);
+    fn init(allocator: Allocator, window_size: u32, hash_bits: u5) !Matcher {
+        const hash_size = @as(u32, 1) << hash_bits;
+        const self = Matcher{
+            .prev = try allocator.alloc(i32, window_size),
+            .head = try allocator.alloc(i32, hash_size),
+            .window_size = window_size,
+            .hash_size = hash_size,
+        };
+        @memset(self.prev, -1);
+        @memset(self.head, -1);
         return self;
     }
 
-    fn hash(b0: u8, b1: u8, b2: u8) u32 {
+    fn deinit(self: *Matcher, allocator: Allocator) void {
+        allocator.free(self.prev);
+        allocator.free(self.head);
+    }
+
+    fn hash(self: *const Matcher, b0: u8, b1: u8, b2: u8) u32 {
         var h: u32 = b0;
         h = ((h << 5) ^ b1);
         h = ((h << 5) ^ b2);
-        return h & (HASH_SIZE - 1);
+        return h & (self.hash_size - 1);
     }
 
     fn findMatch(self: *Matcher, src: []const u8, pos: usize) struct { len: u16, dist: u16 } {
@@ -529,18 +529,18 @@ const Matcher = struct {
         const b1 = src[pos + 1];
         const b2 = src[pos + 2];
         const b3 = @as(u32, b0) | (@as(u32, b1) << 8) | (@as(u32, b2) << 16);
-        const h = hash(b0, b1, b2);
+        const h = self.hash(b0, b1, b2);
         var best_len: u16 = 0;
         var best_dist: u16 = 0;
         var chain_len: u32 = 0;
         var max_chain: u32 = 256;
         if (pos >= 4096) max_chain = 128;
-        if (pos >= 32768) max_chain = 64;
+        if (pos >= self.window_size) max_chain = 64;
         var prev_pos = self.head[h];
         while (prev_pos >= 0 and chain_len < max_chain) {
             const p = @as(usize, @intCast(prev_pos));
             const dist = pos - p;
-            if (dist == 0 or dist > WINDOW_SIZE) break;
+            if (dist == 0 or dist > self.window_size) break;
             const a3_ptr: *align(1) const u32 = @ptrCast(&src[p]);
             if ((a3_ptr.* & 0xFFFFFF) == b3) {
                 var len: u16 = 3;
@@ -561,7 +561,7 @@ const Matcher = struct {
                     if (len == MAX_MATCH) break;
                 }
             }
-            prev_pos = self.prev[p % WINDOW_SIZE];
+            prev_pos = self.prev[p % self.window_size];
             chain_len += 1;
         }
         return .{ .len = best_len, .dist = best_dist };
@@ -569,8 +569,8 @@ const Matcher = struct {
 
     fn slide(self: *Matcher, src: []const u8, pos: usize) void {
         if (pos + 2 < src.len) {
-            const h = hash(src[pos], src[pos + 1], src[pos + 2]);
-            self.prev[pos % WINDOW_SIZE] = self.head[h];
+            const h = self.hash(src[pos], src[pos + 1], src[pos + 2]);
+            self.prev[pos % self.window_size] = self.head[h];
             self.head[h] = @intCast(pos);
         }
     }
@@ -837,7 +837,7 @@ fn buildHuffmanLengths(freqs: []const u32, max_bits: u5, lengths: []u4) void {
 pub fn deflateDynamicBlock(bw: *BitWriter, matcher: *Matcher, src: []const u8, start: usize, end: usize, bfinal: u1) Error!void {
     const Token = struct {
         symbol: u16, // 0-255 = literal, 3-258 = match length
-        dist: u16,   // 0 = literal, >0 = distance
+        dist: u16, // 0 = literal, >0 = distance
     };
 
     const block_len = end - start;
@@ -1049,10 +1049,10 @@ fn deflateStoredBlock(bw: *BitWriter, input: []const u8, bfinal: u1) Error!void 
 }
 
 pub const CompressionLevel = enum {
-    store,   // no compression
-    fast,    // speed optimized
+    store, // no compression
+    fast, // speed optimized
     default, // balanced
-    best,    // ratio optimized
+    best, // ratio optimized
 };
 
 fn deflateFixedBlock(bw: *BitWriter, matcher: *Matcher, src: []const u8, start: usize, end: usize, bfinal: u1) Error!void {
@@ -1109,7 +1109,7 @@ fn deflateBlock(bw: *BitWriter, matcher: *Matcher, src: []const u8, start: usize
     }
 }
 
-fn deflateBlocks(bw: *BitWriter, input: []const u8, level: CompressionLevel) Error!void {
+fn deflateBlocks(bw: *BitWriter, input: []const u8, level: CompressionLevel, small: bool) Error!void {
     if (input.len == 0) {
         // Emit an empty stored block for empty input.
         try deflateStoredBlock(bw, input, 1);
@@ -1119,7 +1119,10 @@ fn deflateBlocks(bw: *BitWriter, input: []const u8, level: CompressionLevel) Err
     // use a single block to avoid block-boundary overhead. For larger inputs,
     // use 128KB blocks.
     const BLOCK_SIZE: usize = if (input.len <= 128 * 1024) input.len else 131072;
-    var matcher = Matcher.init();
+    const window_size: u32 = if (small) 4096 else WINDOW_SIZE;
+    const hash_bits: u5 = if (small) 13 else HASH_BITS;
+    var matcher = try Matcher.init(bw.allocator, window_size, hash_bits);
+    defer matcher.deinit(bw.allocator);
     var offset: usize = 0;
     while (offset < input.len) {
         const end = @min(offset + BLOCK_SIZE, input.len);
@@ -1130,11 +1133,20 @@ fn deflateBlocks(bw: *BitWriter, input: []const u8, level: CompressionLevel) Err
     }
 }
 
+pub const DeflateOptions = struct {
+    level: CompressionLevel = .default,
+    small: bool = false,
+};
+
 pub fn deflate(allocator: Allocator, input: []const u8) Error![]u8 {
-    return deflateWithLevel(allocator, input, .default);
+    return deflateWithOptions(allocator, input, .{});
 }
 
 pub fn deflateWithLevel(allocator: Allocator, input: []const u8, level: CompressionLevel) Error![]u8 {
+    return deflateWithOptions(allocator, input, .{ .level = level });
+}
+
+pub fn deflateWithOptions(allocator: Allocator, input: []const u8, options: DeflateOptions) Error![]u8 {
     var bw = BitWriter.init(allocator);
     errdefer bw.deinit();
     try bw.list.ensureTotalCapacity(allocator, input.len + 6);
@@ -1142,7 +1154,7 @@ pub fn deflateWithLevel(allocator: Allocator, input: []const u8, level: Compress
     try bw.writeByte(0x78);
     try bw.writeByte(0x9C);
 
-    try deflateBlocks(&bw, input, level);
+    try deflateBlocks(&bw, input, options.level, options.small);
 
     const compressed = try bw.finish();
 
@@ -1156,15 +1168,19 @@ pub fn deflateWithLevel(allocator: Allocator, input: []const u8, level: Compress
 }
 
 pub fn deflateRaw(allocator: Allocator, input: []const u8) Error![]u8 {
-    return deflateRawWithLevel(allocator, input, .default);
+    return deflateRawWithOptions(allocator, input, .{});
 }
 
 pub fn deflateRawWithLevel(allocator: Allocator, input: []const u8, level: CompressionLevel) Error![]u8 {
+    return deflateRawWithOptions(allocator, input, .{ .level = level });
+}
+
+pub fn deflateRawWithOptions(allocator: Allocator, input: []const u8, options: DeflateOptions) Error![]u8 {
     var bw = BitWriter.init(allocator);
     errdefer bw.deinit();
     try bw.list.ensureTotalCapacity(allocator, input.len + 4);
 
-    try deflateBlocks(&bw, input, level);
+    try deflateBlocks(&bw, input, options.level, options.small);
 
     return bw.finish();
 }
@@ -1194,6 +1210,10 @@ pub fn inflateRaw(allocator: Allocator, input: []const u8) Error![]u8 {
 // ============================================
 
 pub fn gzipCompress(allocator: Allocator, input: []const u8, filename: ?[]const u8, level: CompressionLevel) Error![]u8 {
+    return gzipCompressWithOptions(allocator, input, filename, .{ .level = level });
+}
+
+pub fn gzipCompressWithOptions(allocator: Allocator, input: []const u8, filename: ?[]const u8, options: DeflateOptions) Error![]u8 {
     var bw = BitWriter.init(allocator);
     errdefer bw.deinit();
     try bw.list.ensureTotalCapacity(allocator, input.len + 128);
@@ -1201,7 +1221,7 @@ pub fn gzipCompress(allocator: Allocator, input: []const u8, filename: ?[]const 
     // Gzip header
     try bw.writeByte(0x1f); // ID1
     try bw.writeByte(0x8b); // ID2
-    try bw.writeByte(8);    // CM = deflate
+    try bw.writeByte(8); // CM = deflate
     var flg: u8 = 0;
     if (filename != null) flg |= 0x08; // FNAME
     try bw.writeByte(flg);
@@ -1219,7 +1239,7 @@ pub fn gzipCompress(allocator: Allocator, input: []const u8, filename: ?[]const 
     }
 
     // Deflate data (raw, no zlib wrapper)
-    try deflateBlocks(&bw, input, level);
+    try deflateBlocks(&bw, input, options.level, options.small);
     try bw.alignToByte();
     const compressed_len = bw.list.items.len;
 
@@ -1308,13 +1328,13 @@ pub fn gzipDecompress(allocator: Allocator, input: []const u8) Error!struct { da
     if (input.len < 8) return error.InvalidData;
     const trailer_start = input.len - 8;
     const stored_crc = @as(u32, input[trailer_start]) |
-                       (@as(u32, input[trailer_start + 1]) << 8) |
-                       (@as(u32, input[trailer_start + 2]) << 16) |
-                       (@as(u32, input[trailer_start + 3]) << 24);
+        (@as(u32, input[trailer_start + 1]) << 8) |
+        (@as(u32, input[trailer_start + 2]) << 16) |
+        (@as(u32, input[trailer_start + 3]) << 24);
     const stored_isize = @as(u32, input[trailer_start + 4]) |
-                         (@as(u32, input[trailer_start + 5]) << 8) |
-                         (@as(u32, input[trailer_start + 6]) << 16) |
-                         (@as(u32, input[trailer_start + 7]) << 24);
+        (@as(u32, input[trailer_start + 5]) << 8) |
+        (@as(u32, input[trailer_start + 6]) << 16) |
+        (@as(u32, input[trailer_start + 7]) << 24);
 
     if (stored_isize != @as(u32, @truncate(data.len))) return error.InvalidData;
     const computed_crc = crc32(data);
@@ -1330,17 +1350,23 @@ pub fn gzipDecompress(allocator: Allocator, input: []const u8) Error!struct { da
 pub const Compressor = struct {
     allocator: Allocator,
     level: CompressionLevel,
+    small: bool,
     bw: BitWriter,
     buffer: std.ArrayList(u8),
     adler: u32,
 
     pub fn init(allocator: Allocator, level: CompressionLevel) Error!Compressor {
+        return initWithOptions(allocator, .{ .level = level });
+    }
+
+    pub fn initWithOptions(allocator: Allocator, options: DeflateOptions) Error!Compressor {
         var bw = BitWriter.init(allocator);
         try bw.writeByte(0x78);
         try bw.writeByte(0x9C);
         return .{
             .allocator = allocator,
-            .level = level,
+            .level = options.level,
+            .small = options.small,
             .bw = bw,
             .buffer = std.ArrayList(u8).empty,
             .adler = 1,
@@ -1358,7 +1384,7 @@ pub const Compressor = struct {
     }
 
     pub fn finish(self: *Compressor) Error![]u8 {
-        try deflateBlocks(&self.bw, self.buffer.items, self.level);
+        try deflateBlocks(&self.bw, self.buffer.items, self.level, self.small);
         const compressed = try self.bw.finish();
         const final = try self.allocator.realloc(compressed, compressed.len + 4);
         final[compressed.len + 0] = @truncate(self.adler >> 24);

@@ -1,0 +1,24 @@
+# Zig build artifacts
+zig-out/
+.zig-cache/
+
+# Benchmark/test data (Canterbury Corpus)
+alice29.txt
+asyoulik.txt
+cantrbry.tar.gz
+cp.html
+fields.c
+grammar.lsp
+kennedy.xls
+lcet10.txt
+plrabn12.txt
+ptt5
+sum
+xargs.1
+
+# Debug and temporary files
+debug*.zig
+debug_zlib*
+bench_opt
+testfile.txt
+*.gz

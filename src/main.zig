@@ -25,7 +25,6 @@ const usage =
     \\  -r, --recursive   Operate recursively on directories
     \\  -S, --suffix=SUF  Use suffix SUF instead of .gz
     \\  -s, --small       Use less memory
-    \\  -T, --no-time     Do not save or restore modification time
     \\  -V, --version     Show version
     \\  -1 .. -9          Compression level (default: 6)
     \\  --fast            Compress faster
@@ -41,6 +40,7 @@ const CliOptions = struct {
     test_integrity: bool = false,
     list: bool = false,
     no_name: bool = false,
+    quiet: bool = false,
     recursive: bool = false,
     level: zflate.CompressionLevel = .default,
     suffix: []const u8 = ".gz",
@@ -70,6 +70,8 @@ fn parseArgsZ(args: []const [:0]const u8) !struct { opts: CliOptions, files: [][
             opts.list = true;
         } else if (std.mem.eql(u8, arg, "--no-name")) {
             opts.no_name = true;
+        } else if (std.mem.eql(u8, arg, "--quiet")) {
+            opts.quiet = true;
         } else if (std.mem.eql(u8, arg, "--best")) {
             opts.level = .best;
         } else if (std.mem.eql(u8, arg, "--store")) {
@@ -106,6 +108,7 @@ fn parseArgsZ(args: []const [:0]const u8) !struct { opts: CliOptions, files: [][
                     't' => opts.test_integrity = true,
                     'l' => opts.list = true,
                     'n' => opts.no_name = true,
+                    'q' => opts.quiet = true,
                     'r' => opts.recursive = true,
                     'h' => {
                         std.debug.print("{s}\n", .{usage});
@@ -121,6 +124,7 @@ fn parseArgsZ(args: []const [:0]const u8) !struct { opts: CliOptions, files: [][
                     },
                     '0' => opts.level = .store,
                     '1' => opts.level = .fast,
+                    '2'...'8' => opts.level = .default,
                     '9' => opts.level = .best,
                     else => {
                         std.debug.print("zflate: unrecognized option '-{c}'\nTry 'zflate --help' for more information.\n", .{arg[j]});
@@ -167,7 +171,9 @@ fn compressFile(allocator: std.mem.Allocator, io: Io, path: []const u8, opts: Cl
                 }
                 return;
             };
-            std.debug.print("zflate: {s} already exists; not overwritten (use -f to force)\n", .{out_path});
+            if (!opts.quiet) {
+                std.debug.print("zflate: {s} already exists; not overwritten (use -f to force)\n", .{out_path});
+            }
             std.process.exit(1);
         }
 
@@ -223,7 +229,9 @@ fn decompressFile(allocator: std.mem.Allocator, io: Io, path: []const u8, opts: 
                 }
                 return;
             };
-            std.debug.print("zflate: {s} already exists; not overwritten (use -f to force)\n", .{out_path});
+            if (!opts.quiet) {
+                std.debug.print("zflate: {s} already exists; not overwritten (use -f to force)\n", .{out_path});
+            }
             std.process.exit(1);
         }
 
@@ -292,7 +300,7 @@ fn decompressStdin(allocator: std.mem.Allocator) !void {
     try writeAllStdout(result.data);
 }
 
-fn testFile(allocator: std.mem.Allocator, io: Io, path: []const u8) !void {
+fn testFile(allocator: std.mem.Allocator, io: Io, path: []const u8, quiet: bool) !void {
     const compressed = try Io.Dir.cwd().readFileAlloc(io, path, allocator, .unlimited);
     defer allocator.free(compressed);
 
@@ -300,7 +308,9 @@ fn testFile(allocator: std.mem.Allocator, io: Io, path: []const u8) !void {
     defer allocator.free(result.data);
     defer if (result.filename) |f| allocator.free(f);
 
-    std.debug.print("{s}: OK\n", .{path});
+    if (!quiet) {
+        std.debug.print("{s}: OK\n", .{path});
+    }
 }
 
 fn listFile(allocator: std.mem.Allocator, io: Io, path: []const u8) !void {
@@ -337,12 +347,16 @@ fn processDirectory(allocator: std.mem.Allocator, io: Io, base_path: []const u8,
         if (opts.decompress) {
             if (std.mem.endsWith(u8, full_path, opts.suffix)) {
                 decompressFile(allocator, io, full_path, opts) catch |err| {
-                    std.debug.print("zflate: {s}: {s}\n", .{ full_path, @errorName(err) });
+                    if (!opts.quiet) {
+                        std.debug.print("zflate: {s}: {s}\n", .{ full_path, @errorName(err) });
+                    }
                 };
             }
         } else {
             compressFile(allocator, io, full_path, opts) catch |err| {
-                std.debug.print("zflate: {s}: {s}\n", .{ full_path, @errorName(err) });
+                if (!opts.quiet) {
+                    std.debug.print("zflate: {s}: {s}\n", .{ full_path, @errorName(err) });
+                }
             };
         }
     }
@@ -350,7 +364,7 @@ fn processDirectory(allocator: std.mem.Allocator, io: Io, base_path: []const u8,
 
 fn processFile(allocator: std.mem.Allocator, io: Io, path: []const u8, opts: CliOptions) !void {
     if (opts.test_integrity) {
-        try testFile(allocator, io, path);
+        try testFile(allocator, io, path, opts.quiet);
     } else if (opts.list) {
         try listFile(allocator, io, path);
     } else if (opts.decompress) {
